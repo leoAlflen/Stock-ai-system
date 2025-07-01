@@ -8,21 +8,30 @@ dbstring = 'stockDatabase.db'
 def create_database():
     con = sqlite3.connect(dbstring)
     cur = con.cursor()
-    cur.execute('''CREATE TABLE IF NOT EXISTS stock(Name TEXT, quantity INTEGER, price REAL)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS stock(Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT, Type STRING, Quantity INTEGER, ML INTEGER, Serves Decimal)''')
     con.commit()
     con.close()
 
-def insert_record(name, quantity, price):
+def insert_record(name, type, quantity, ml):
     con = sqlite3.connect(dbstring)
     cur = con.cursor()
-    cur.execute('''INSERT INTO stock(Name, quantity, price) VALUES(?, ?, ?)''', (name, quantity, price))
+    serves = calculate_serves(type,quantity, ml)
+    cur.execute('''INSERT INTO stock(Name, Type, Quantity, ML, Serves) VALUES(? ,? ,?, ?, ?)''', (name, type,quantity, ml, serves))
     con.commit()
     con.close()
 
-def retrieve_records():
+def calculate_serves(type,quantity, ml):
+     if type == 'Gin' or type == 'Whiskey' or type == 'Vodka':
+          serves = (ml / 35) * quantity
+     else: serves = (ml / 25) * quantity
+
+     return serves    
+
+def retrieve_records(item_type):
     con = sqlite3.connect(dbstring)
+    con.row_factory = sqlite3.Row
     cur = con.cursor()
-    cur.execute('''SELECT * FROM stock''')
+    cur.execute('''SELECT * FROM stock WHERE Type = ?''', (item_type,))
     records = cur.fetchall()
     con.close()
     return records
@@ -49,19 +58,15 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 #Get information from the db
-@app.route('/items/get/<string:item_Name>', methods=['GET'])
-def retrieve(item_Name):
-     con = sqlite3.connect(dbstring)
-     con.row_factory = sqlite3.Row
-     cur = con.cursor()
-     cur.execute('select * from stock where Name = ?',(item_Name,))
-     items = cur.fetchone()
-     con.close()
+@app.route('/items/get/<string:item_type>', methods=['GET'])
+def retrieve(item_type):
+     items = retrieve_records(item_type)
 
-     if items is None:
+     if not items:
           return jsonify({'error ':' Item not found'}), 404
      
-     return jsonify(dict(items)) 
+     items_list = [dict(item) for item in items]
+     return jsonify(items_list)
 
 #Input Information into the db
 @app.route('/items/post/', methods=['POST'])
@@ -69,25 +74,23 @@ def add_item():
     print(" POST received")
     data = request.get_json()
     name = data.get('Name')
+    type = data.get('Type')
     quantity = data.get('Quantity')
-    price = data.get('Price')
+    ml = data.get('ML')
+    
 
-    if not name or quantity is None or price is None:
+    if name is None or type is None or quantity is None or ml is None:
         return jsonify({"error": "Missing required field"}), 400
 
-    con = sqlite3.connect(dbstring)
-    cur = con.cursor()
-    cur.execute("INSERT INTO stock (Name, Quantity, Price) VALUES (?, ?, ?)",
-                (name, quantity, price))
-    con.commit()
-    con.close()
+    insert_record(name, type, quantity, ml)
 
     return jsonify({
         'message': 'Item added successfully',
         'item': {
             'Name': name,
+            'Type': type,
             'Quantity': quantity,
-            'Price': price
+            'ML' : ml,
         }
     }), 201
 
