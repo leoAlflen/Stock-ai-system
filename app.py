@@ -48,7 +48,8 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-@app.route('/items/get/<string:item_Name>')
+#Get information from the db
+@app.route('/items/get/<string:item_Name>', methods=['GET'])
 def retrieve(item_Name):
      con = sqlite3.connect(dbstring)
      con.row_factory = sqlite3.Row
@@ -61,6 +62,35 @@ def retrieve(item_Name):
           return jsonify({'error ':' Item not found'}), 404
      
      return jsonify(dict(items)) 
+
+#Input Information into the db
+@app.route('/items/post/', methods=['POST'])
+def add_item():
+    print(" POST received")
+    data = request.get_json()
+    name = data.get('Name')
+    quantity = data.get('Quantity')
+    price = data.get('Price')
+
+    if not name or quantity is None or price is None:
+        return jsonify({"error": "Missing required field"}), 400
+
+    con = sqlite3.connect(dbstring)
+    cur = con.cursor()
+    cur.execute("INSERT INTO stock (Name, Quantity, Price) VALUES (?, ?, ?)",
+                (name, quantity, price))
+    con.commit()
+    con.close()
+
+    return jsonify({
+        'message': 'Item added successfully',
+        'item': {
+            'Name': name,
+            'Quantity': quantity,
+            'Price': price
+        }
+    }), 201
+
 
 if __name__ == "__main__":
     
