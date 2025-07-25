@@ -9,7 +9,7 @@ dbstring = 'stockDatabase.db'
 def create_database():
     con = sqlite3.connect(dbstring)
     cur = con.cursor()
-    cur.execute('''CREATE TABLE IF NOT EXISTS stock(Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT, Type STRING, Quantity INTEGER, ML INTEGER, Serves Decimal)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS stock(Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT, Type STRING, Quantity INTEGER, ML INTEGER)''')
     con.commit()
     con.close()
 
@@ -17,30 +17,18 @@ def create_database():
 def insert_record(name, type, quantity, ml):
     con = sqlite3.connect(dbstring)
     cur = con.cursor()
-    serves = calculate_serves(type, ml)
-    cur.execute('''INSERT INTO stock(Name, Type, Quantity, ML, Serves) VALUES(? ,? ,?, ?, ?)''', (name, type,quantity, ml, serves))
+    
+    cur.execute('''INSERT INTO stock(Name, Type, Quantity, ML) VALUES(? ,? ,?, ?)''', (name, type,quantity, ml))
     con.commit()
     con.close()
 
-#calculates the serves for each beverage
-def calculate_serves(type, ml):
-     if type == 'Gin' or type == 'Whiskey' or type == 'Vodka':
-          serves = (ml / 35)
-     elif type == 'Keg':
-            serves = (ml / 500)
-     elif type == 'Syrup':
-        serves = (ml/25)
-     elif type == 'Bottle':
-          serves = ml / ml
-
-     return serves    
 
 #retrieve records by type
-def retrieve_records(item_type):
+def retrieve_records():
     con = sqlite3.connect(dbstring)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
-    cur.execute('''SELECT * FROM stock WHERE Type = ?''', (item_type,))
+    cur.execute('''SELECT * FROM stock ''')
     records = cur.fetchall()
     con.close()
     return records
@@ -75,13 +63,15 @@ def update_quantity(name, new_quantity):
      con.close()
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS 
 
 app = Flask(__name__)
+CORS(app)
 
 #Get information from the db
-@app.route('/items/get/<string:item_type>', methods=['GET'])
-def retrieve(item_type):
-     items = retrieve_records(item_type)
+@app.route('/items/get', methods=['GET'])
+def retrieve():
+     items = retrieve_records()
 
      if not items:
           return jsonify({'error ':' Item not found'}), 404
@@ -94,10 +84,10 @@ def retrieve(item_type):
 def add_item():
     print(" POST received")
     data = request.get_json()
-    name = data.get('Name')
-    type = data.get('Type')
-    quantity = data.get('Quantity')
-    ml = data.get('ML')
+    name = data.get('name')
+    type = data.get('type')
+    quantity = data.get('quantity')
+    ml = data.get('ml')
     
 
     if name is None or type is None or quantity is None or ml is None:
@@ -108,10 +98,10 @@ def add_item():
     return jsonify({
         'message': 'Item added successfully',
         'item': {
-            'Name': name,
-            'Type': type,
-            'Quantity': quantity,
-            'ML' : ml,
+            'name': name,
+            'type': type,
+            'quantity': quantity,
+            'ml' : ml,
         }
     }), 201
 
