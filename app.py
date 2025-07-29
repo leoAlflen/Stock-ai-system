@@ -108,15 +108,18 @@ def add_item():
 # Update Quantity
 @app.route('/items/patch/quantity/<string:name>', methods=['PATCH'])
 def update_item(name):
-     data = request.get_json()
-     new_quantity = data.get("Quantity")
+    data = request.get_json()
+    new_quantity = data.get("Quantity")
 
-     if new_quantity is None:
-          return jsonify({"Error" : "Quantity required"}), 400
-    
-     update_quantity(name, new_quantity)
+    if new_quantity is None:
+        return jsonify({"Error": "Quantity required"}), 400
 
-     return jsonify({'Quantity Updated" : "Quantity for {name} updated to {new_quantity}'}), 200
+    update_quantity(name, new_quantity)  # your custom function
+
+    return jsonify({
+        "Quantity Updated": f"Quantity for {name} updated to {new_quantity}"
+    }), 200
+
 
 ##Delete Record/Item/Row
 @app.route('/items/delete/<string:name>', methods =['DELETE'])
