@@ -5,13 +5,21 @@ import _sqlite3 as sqlite3
 
 dbstring = 'stockDatabase.db'
 
-#create database
+#create database with stock table
 def create_database():
     con = sqlite3.connect(dbstring)
     cur = con.cursor()
     cur.execute('''CREATE TABLE IF NOT EXISTS stock(Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT, Type STRING, Quantity INTEGER, ML INTEGER)''')
     con.commit()
     con.close()
+
+#create cocktails table
+def create_cocktailTable():
+     con = sqlite3.connect(dbstring)
+     cur = con.cursor()
+     cur.execute('''CREATE TABLE IF NOT EXISTS recipes(recipesId INTEGER PRIMARY KEY AUTOINCREMENT, recName TEXT, Type STRING, Quantity INTEGER, ML INTEGER)''')
+     con.commit()
+     con.close()
 
 #insert records/rows/new items
 def insert_record(name, type, quantity, ml):
@@ -73,14 +81,12 @@ CORS(app)
 def retrieve():
      items = retrieve_records()
 
-     if not items:
-          return jsonify({'error ':' Item not found'}), 404
-     
+    
      items_list = [dict(item) for item in items]
      return jsonify(items_list)
 
 #Input Information into the db
-@app.route('/items/post/', methods=['POST'])
+@app.route('/items/post', methods=['POST'])
 def add_item():
     print(" POST received")
     data = request.get_json()
@@ -105,26 +111,44 @@ def add_item():
         }
     }), 201
 
-# Update Quantity
-@app.route('/items/patch/quantity/<string:name>', methods=['PATCH'])
-def update_item(name):
+# Update Quantities
+@app.route('/items/patch/quantities', methods=['PATCH'])
+def update_all_quantities():
     data = request.get_json()
-    new_quantity = data.get("Quantity")
+    print("Received Data", data)
 
-    if new_quantity is None:
-        return jsonify({"Error": "Quantity required"}), 400
+    if not isinstance(data, list):
+         return jsonify({"Error": "A list of item updates is required"}), 400
+    
+    updated = []
+    failed = []
 
-    update_quantity(name, new_quantity)  # your custom function
+    for item in data: 
+         name = item.get("Name")
+         quantity = item.get("Quantity")
+         
+         if not name or quantity is None:
+              failed.append(item)
+              continue
+         try:
+              update_quantity(name,quantity)
+              updated.append
+              print("It works")
+         except Exception as e:
+              failed.append({**item, "error": str(e)})
+              print("IT doesnt work")
 
     return jsonify({
-        "Quantity Updated": f"Quantity for {name} updated to {new_quantity}"
+         "Updated Items": updated,
+        "Failed Updates": failed
     }), 200
 
-
 ##Delete Record/Item/Row
-@app.route('/items/delete/<string:name>', methods =['DELETE'])
-def delete_item(name):
+@app.route('/items/delete', methods =['DELETE'])
+def delete_item():
      
+     name = request.get_json()
+
      #sets the message
      item = retrieve_by_name(name)
      message = {'Item Deleted':'{name}'}
