@@ -1,173 +1,138 @@
 import _sqlite3 as sqlite3
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from dotenv import load_dotenv
+import os
 
-# This code creates a SQLite database, creates a table, inserts a record, and retrieves it.
-# It uses the sqlite3 module to interact with the database.
+# ----- Load Environment Variables -----
+load_dotenv()
+dbstring = os.getenv("DB_NAME", "default.db")  # fallback if missing
 
-dbstring = 'stockDatabase.db'
-
-#create database with stock table
+# ----- Database functions -----
 def create_database():
     con = sqlite3.connect(dbstring)
     cur = con.cursor()
-    cur.execute('''CREATE TABLE IF NOT EXISTS stock(Id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT, Type STRING, Quantity INTEGER, ML INTEGER)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS stock(
+        Id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        Name TEXT, 
+        Type TEXT, 
+        Quantity INTEGER, 
+        ML INTEGER
+    )''')
     con.commit()
     con.close()
 
-#create cocktails table
-def create_cocktailTable():
-     con = sqlite3.connect(dbstring)
-     cur = con.cursor()
-     cur.execute('''CREATE TABLE IF NOT EXISTS recipes(recipesId INTEGER PRIMARY KEY AUTOINCREMENT, recName TEXT, Type STRING, Quantity INTEGER, ML INTEGER)''')
-     con.commit()
-     con.close()
-
-#insert records/rows/new items
 def insert_record(name, type, quantity, ml):
     con = sqlite3.connect(dbstring)
     cur = con.cursor()
-    
-    cur.execute('''INSERT INTO stock(Name, Type, Quantity, ML) VALUES(? ,? ,?, ?)''', (name, type,quantity, ml))
+    cur.execute('''INSERT INTO stock(Name, Type, Quantity, ML) VALUES(?, ?, ?, ?)''',
+                (name, type, quantity, ml))
     con.commit()
     con.close()
 
-
-#retrieve records by type
 def retrieve_records():
     con = sqlite3.connect(dbstring)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
-    cur.execute('''SELECT * FROM stock ''')
+    cur.execute("SELECT * FROM stock")
     records = cur.fetchall()
     con.close()
     return records
 
-#retrieve records by name
 def retrieve_by_name(name):
     con = sqlite3.connect(dbstring)
     cur = con.cursor()
-    cur.execute("SELECT * FROM stock where Name = ?", (name,))
+    cur.execute("SELECT * FROM stock WHERE Name = ?", (name,))
     records = cur.fetchall()
     con.close()
-    return records 
+    return records
 
-#delete records/rows/items
 def delete_records(name):
+    con = sqlite3.connect(dbstring)
+    cur = con.cursor()
+    cur.execute("DELETE FROM stock WHERE Name = ?", (name,))
+    con.commit()
+    con.close()
 
-        con = sqlite3.connect(dbstring)
-        cur = con.cursor()
-        cur.execute("DELETE FROM stock WHERE Name = ? ", (name,))
-        con.commit()
-        con.close()
-
-      
 def update_quantity(name, new_quantity):
-     
-    # update
-     
-     con = sqlite3.connect(dbstring)
-     cur = con.cursor()
-     cur.execute("UPDATE stock SET Quantity = ? WHERE Name = ?", (new_quantity, name))
-     con.commit()
-     con.close()
+    con = sqlite3.connect(dbstring)
+    cur = con.cursor()
+    cur.execute("UPDATE stock SET Quantity = ? WHERE Name = ?", (new_quantity, name))
+    con.commit()
+    con.close()
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS 
-
+# ----- Flask App -----
 app = Flask(__name__)
 CORS(app)
 
-#Get information from the db
+# Load secret key from .env
+app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "fallbacksecret")
+
 @app.route('/items/get', methods=['GET'])
 def retrieve():
-     items = retrieve_records()
+    items = retrieve_records()
+    items_list = [dict(item) for item in items]
+    return jsonify(items_list)
 
-    
-     items_list = [dict(item) for item in items]
-     return jsonify(items_list)
-
-#Input Information into the db
 @app.route('/items/post', methods=['POST'])
 def add_item():
-    print(" POST received")
     data = request.get_json()
     name = data.get('name')
     type = data.get('type')
     quantity = data.get('quantity')
     ml = data.get('ml')
-    
 
-    if name is None or type is None or quantity is None or ml is None:
+    if not all([name, type, quantity, ml]):
         return jsonify({"error": "Missing required field"}), 400
 
     insert_record(name, type, quantity, ml)
-
     return jsonify({
         'message': 'Item added successfully',
-        'item': {
-            'name': name,
-            'type': type,
-            'quantity': quantity,
-            'ml' : ml,
-        }
+        'item': data
     }), 201
 
-# Update Quantities
-@app.route('/items/patch/quantities', methods=['PATCH'])
+@app.route('/items/quantities', methods=['PATCH'])
 def update_all_quantities():
     data = request.get_json()
-    print("Received Data", data)
 
     if not isinstance(data, list):
-         return jsonify({"Error": "A list of item updates is required"}), 400
+        return jsonify({"Error": "A list of item updates is required"}), 400
     
-    updated = []
-    failed = []
+    updated, failed = [], []
 
     for item in data: 
-         name = item.get("Name")
-         quantity = item.get("Quantity")
+        name = item.get("name")
+        quantity = item.get("quantity")
          
-         if not name or quantity is None:
-              failed.append(item)
-              continue
-         try:
-              update_quantity(name,quantity)
-              updated.append
-              print("It works")
-         except Exception as e:
-              failed.append({**item, "error": str(e)})
-              print("IT doesnt work")
+        if not name or quantity is None:
+            failed.append(item)
+            continue
+        try:
+            update_quantity(name, quantity)
+            updated.append(item)
+        except Exception as e:
+            failed.append({**item, "error": str(e)})
 
     return jsonify({
-         "Updated Items": updated,
+        "Updated Items": updated,
         "Failed Updates": failed
     }), 200
 
-##Delete Record/Item/Row
-@app.route('/items/delete', methods =['DELETE'])
+@app.route('/items/delete', methods=['DELETE'])
 def delete_item():
+    data = request.get_json()
+    name = data.get("name")
+
+    if not name:
+        return jsonify({"Error": "Item name required"}), 400
      
-     name = request.get_json()
-
-     #sets the message
-     item = retrieve_by_name(name)
-     message = {'Item Deleted':'{name}'}
-     if not item:
-          message = {"Error":"Inexistent Item"}
-
-     if name is None:
-          return jsonify({"Error": "Item name required"})
+    item = retrieve_by_name(name)
+    if not item:
+        return jsonify({"Error": "Item does not exist"}), 404
      
-     delete_records(name)
-
-     return jsonify(message)
+    delete_records(name)
+    return jsonify({"Item Deleted": name})
 
 if __name__ == "__main__":
-    
     create_database()
-
     app.run(debug=True)
-    
-
-
-
