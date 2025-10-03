@@ -64,7 +64,8 @@ def update_quantity(name, new_quantity):
 
 # ----- Flask App -----
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
 
 # Load secret key from .env
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "fallbacksecret")
