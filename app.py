@@ -6,7 +6,8 @@ import os
 
 # ----- Load Environment Variables -----
 load_dotenv()
-dbstring = os.getenv("DB_NAME", "default.db")  # fallback if missing
+dbstring = os.path.join(os.getcwd(), "default.db")
+  # fallback if missing
 
 # ----- Database functions -----
 def create_database():
@@ -135,4 +136,5 @@ def delete_item():
 
 if __name__ == "__main__":
     create_database()
-    
+    app.run(host="0.0.0.0", port=5000, debug=True)
+
