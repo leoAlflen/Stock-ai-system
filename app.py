@@ -1,4 +1,4 @@
-import psycopg2
+import psycopg
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -17,7 +17,7 @@ if db_url.startswith("postgres://"):
 
 # ----- Database functions -----
 def create_database():
-    con = psycopg2.connect(db_url)
+    con = psycopg.connect(db_url)
     cur = con.cursor()
     cur.execute('''CREATE TABLE IF NOT EXISTS stock(
         Id SERIAL PRIMARY KEY, 
@@ -30,7 +30,7 @@ def create_database():
     con.close()
 
 def insert_record(name, type, quantity, ml):
-    con = psycopg2.connect(db_url)
+    con = psycopg.connect(db_url)
     cur = con.cursor()
     cur.execute('''INSERT INTO stock(Name, Type, Quantity, ML) VALUES(?, ?, ?, ?)''',
                 (name, type, quantity, ml))
@@ -38,8 +38,8 @@ def insert_record(name, type, quantity, ml):
     con.close()
 
 def retrieve_records():
-    con = psycopg2.connect(db_url)
-    con.row_factory = psycopg2.Row
+    con = psycopg.connect(db_url)
+    con.row_factory = psycopg.Row
     cur = con.cursor()
     cur.execute("SELECT * FROM stock")
     records = cur.fetchall()
@@ -47,7 +47,7 @@ def retrieve_records():
     return records
 
 def retrieve_by_name(name):
-    con = psycopg2.connect(db_url)
+    con = psycopg.connect(db_url)
     cur = con.cursor()
     cur.execute("SELECT * FROM stock WHERE Name = ?", (name,))
     records = cur.fetchall()
@@ -55,14 +55,14 @@ def retrieve_by_name(name):
     return records
 
 def delete_records(name):
-    con = psycopg2.connect(db_url)
+    con = psycopg   .connect(db_url)
     cur = con.cursor()
     cur.execute("DELETE FROM stock WHERE Name = ?", (name,))
     con.commit()
     con.close()
 
 def update_quantity(name, new_quantity):
-    con = psycopg2.connect(db_url)
+    con = psycopg.connect(db_url)
     cur = con.cursor()
     cur.execute("UPDATE stock SET Quantity = ? WHERE Name = ?", (new_quantity, name))
     con.commit()
