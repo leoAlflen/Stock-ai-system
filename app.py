@@ -1,20 +1,26 @@
-import _sqlite3 as sqlite3
+import psycopg2
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
-import os
 
-# ----- Load Environment Variables -----
+
+from dotenv import load_dotenv
 load_dotenv()
-dbstring = os.path.join(os.getcwd(), "default.db")
-  # fallback if missing
+
+db_url = os.getenv("DATABASE_URL")
+
+# Fix Render's postgres:// issue for psycopg2
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
 
 # ----- Database functions -----
 def create_database():
-    con = sqlite3.connect(dbstring)
+    con = psycopg2.connect(db_url)
     cur = con.cursor()
     cur.execute('''CREATE TABLE IF NOT EXISTS stock(
-        Id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        Id SERIAL PRIMARY KEY, 
         Name TEXT, 
         Type TEXT, 
         Quantity INTEGER, 
@@ -24,7 +30,7 @@ def create_database():
     con.close()
 
 def insert_record(name, type, quantity, ml):
-    con = sqlite3.connect(dbstring)
+    con = psycopg2.connect(db_url)
     cur = con.cursor()
     cur.execute('''INSERT INTO stock(Name, Type, Quantity, ML) VALUES(?, ?, ?, ?)''',
                 (name, type, quantity, ml))
@@ -32,8 +38,8 @@ def insert_record(name, type, quantity, ml):
     con.close()
 
 def retrieve_records():
-    con = sqlite3.connect(dbstring)
-    con.row_factory = sqlite3.Row
+    con = psycopg2.connect(db_url)
+    con.row_factory = psycopg2.Row
     cur = con.cursor()
     cur.execute("SELECT * FROM stock")
     records = cur.fetchall()
@@ -41,7 +47,7 @@ def retrieve_records():
     return records
 
 def retrieve_by_name(name):
-    con = sqlite3.connect(dbstring)
+    con = psycopg2.connect(db_url)
     cur = con.cursor()
     cur.execute("SELECT * FROM stock WHERE Name = ?", (name,))
     records = cur.fetchall()
@@ -49,14 +55,14 @@ def retrieve_by_name(name):
     return records
 
 def delete_records(name):
-    con = sqlite3.connect(dbstring)
+    con = psycopg2.connect(db_url)
     cur = con.cursor()
     cur.execute("DELETE FROM stock WHERE Name = ?", (name,))
     con.commit()
     con.close()
 
 def update_quantity(name, new_quantity):
-    con = sqlite3.connect(dbstring)
+    con = psycopg2.connect(db_url)
     cur = con.cursor()
     cur.execute("UPDATE stock SET Quantity = ? WHERE Name = ?", (new_quantity, name))
     con.commit()
