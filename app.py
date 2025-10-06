@@ -3,84 +3,72 @@ import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
+from psycopg.rows import dict_row
 
-
-from dotenv import load_dotenv
 load_dotenv()
 
 db_url = os.getenv("DATABASE_URL")
 
-# Fix Render's postgres:// issue for psycopg2
+# Fix Render's postgres:// issue for psycopg
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-
 # ----- Database functions -----
 def create_database():
-    con = psycopg.connect(db_url)
-    cur = con.cursor()
-    cur.execute('''CREATE TABLE IF NOT EXISTS stock(
-        Id SERIAL PRIMARY KEY, 
-        Name TEXT, 
-        Type TEXT, 
-        Quantity INTEGER, 
-        ML INTEGER
-    )''')
-    con.commit()
-    con.close()
+    with psycopg.connect(db_url) as con:
+        with con.cursor() as cur:
+            cur.execute('''CREATE TABLE IF NOT EXISTS stock(
+                Id SERIAL PRIMARY KEY, 
+                Name TEXT, 
+                Type TEXT, 
+                Quantity INTEGER, 
+                ML INTEGER
+            )''')
+            con.commit()
 
 def insert_record(name, type, quantity, ml):
-    con = psycopg.connect(db_url)
-    cur = con.cursor()
-    cur.execute('''INSERT INTO stock(Name, Type, Quantity, ML) VALUES(?, ?, ?, ?)''',
-                (name, type, quantity, ml))
-    con.commit()
-    con.close()
+    with psycopg.connect(db_url) as con:
+        with con.cursor() as cur:
+            cur.execute('''INSERT INTO stock (Name, Type, Quantity, ML)
+                           VALUES (%s, %s, %s, %s)''', (name, type, quantity, ml))
+            con.commit()
 
 def retrieve_records():
-    con = psycopg.connect(db_url)
-    con.row_factory = psycopg.Row
-    cur = con.cursor()
-    cur.execute("SELECT * FROM stock")
-    records = cur.fetchall()
-    con.close()
-    return records
+    with psycopg.connect(db_url, row_factory=dict_row) as con:
+        with con.cursor() as cur:
+            cur.execute("SELECT * FROM stock")
+            records = cur.fetchall()
+            return records
 
 def retrieve_by_name(name):
-    con = psycopg.connect(db_url)
-    cur = con.cursor()
-    cur.execute("SELECT * FROM stock WHERE Name = ?", (name,))
-    records = cur.fetchall()
-    con.close()
-    return records
+    with psycopg.connect(db_url, row_factory=dict_row) as con:
+        with con.cursor() as cur:
+            cur.execute("SELECT * FROM stock WHERE Name = %s", (name,))
+            records = cur.fetchall()
+            return records
 
 def delete_records(name):
-    con = psycopg   .connect(db_url)
-    cur = con.cursor()
-    cur.execute("DELETE FROM stock WHERE Name = ?", (name,))
-    con.commit()
-    con.close()
+    with psycopg.connect(db_url) as con:
+        with con.cursor() as cur:
+            cur.execute("DELETE FROM stock WHERE Name = %s", (name,))
+            con.commit()
 
 def update_quantity(name, new_quantity):
-    con = psycopg.connect(db_url)
-    cur = con.cursor()
-    cur.execute("UPDATE stock SET Quantity = ? WHERE Name = ?", (new_quantity, name))
-    con.commit()
-    con.close()
+    with psycopg.connect(db_url) as con:
+        with con.cursor() as cur:
+            cur.execute("UPDATE stock SET Quantity = %s WHERE Name = %s",
+                        (new_quantity, name))
+            con.commit()
 
 # ----- Flask App -----
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
-
-
-# Load secret key from .env
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "fallbacksecret")
 
 @app.route('/items/get', methods=['GET'])
 def retrieve():
     items = retrieve_records()
-    items_list = [dict(item) for item in items]
-    return jsonify(items_list)
+    return jsonify(items)
 
 @app.route('/items/post', methods=['POST'])
 def add_item():
@@ -144,4 +132,3 @@ def delete_item():
 if __name__ == "__main__":
     create_database()
     app.run(host="0.0.0.0", port=5000, debug=True)
-
