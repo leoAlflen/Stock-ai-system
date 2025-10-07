@@ -17,7 +17,7 @@ if db_url.startswith("postgres://"):
 def create_database():
     with psycopg.connect(db_url) as con:
         with con.cursor() as cur:
-            cur.execute('''CREATE TABLE IF NOT EXISTS stock(
+            cur.execute('''CREATE TABLE IF NOT EXISTS items(
                 Id SERIAL PRIMARY KEY, 
                 Name TEXT, 
                 Type TEXT, 
@@ -29,34 +29,34 @@ def create_database():
 def insert_record(name, type, quantity, ml):
     with psycopg.connect(db_url) as con:
         with con.cursor() as cur:
-            cur.execute('''INSERT INTO stock (Name, Type, Quantity, ML)
+            cur.execute('''INSERT INTO items (Name, Type, Quantity, ML)
                            VALUES (%s, %s, %s, %s)''', (name, type, quantity, ml))
             con.commit()
 
 def retrieve_records():
     with psycopg.connect(db_url, row_factory=dict_row) as con:
         with con.cursor() as cur:
-            cur.execute("SELECT * FROM stock")
+            cur.execute("SELECT * FROM items")
             records = cur.fetchall()
             return records
 
 def retrieve_by_name(name):
     with psycopg.connect(db_url, row_factory=dict_row) as con:
         with con.cursor() as cur:
-            cur.execute("SELECT * FROM stock WHERE Name = %s", (name,))
+            cur.execute("SELECT * FROM items WHERE Name = %s", (name,))
             records = cur.fetchall()
             return records
 
 def delete_records(name):
     with psycopg.connect(db_url) as con:
         with con.cursor() as cur:
-            cur.execute("DELETE FROM stock WHERE Name = %s", (name,))
+            cur.execute("DELETE FROM items WHERE Name = %s", (name,))
             con.commit()
 
 def update_quantity(name, new_quantity):
     with psycopg.connect(db_url) as con:
         with con.cursor() as cur:
-            cur.execute("UPDATE stock SET Quantity = %s WHERE Name = %s",
+            cur.execute("UPDATE items SET Quantity = %s WHERE Name = %s",
                         (new_quantity, name))
             con.commit()
 
