@@ -172,7 +172,7 @@ def send_xml():
         msg.attach(part)
 
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        with smtplib.SMTP("smtp.office365.com", 587) as server:
             server.starttls()
             server.login(sender, password)
             server.send_message(msg)
