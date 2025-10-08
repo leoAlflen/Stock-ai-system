@@ -144,10 +144,10 @@ def send_xml():
     root = ET.Element("drinks")
     for item in items:
         drink = ET.SubElement(root, "item")
-        ET.SubElement(drink, "name").text = str(item["Name"])
-        ET.SubElement(drink, "type").text = str(item["Type"])
-        ET.SubElement(drink, "quantity").text = str(item["Quantity"])
-        ET.SubElement(drink, "ml").text = str(item["ML"])
+        ET.SubElement(drink, "name").text = str(item["name"])
+        ET.SubElement(drink, "type").text = str(item["type"])
+        ET.SubElement(drink, "quantity").text = str(item["quantity"])
+        ET.SubElement(drink, "ml").text = str(item["ml"])
 
     xml_data = ET.tostring(root, encoding="utf-8", xml_declaration=True).decode()
     file_path = "drinks.xml"
