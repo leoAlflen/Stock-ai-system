@@ -181,7 +181,8 @@ def send_xml():
         print(e)
         return "Error sending email", 500
     finally:
-        os.remove(file_path)
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 if __name__ == "__main__":
     create_database()
