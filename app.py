@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from psycopg.rows import dict_row
 import xml.etree.ElementTree as ET
 import smtplib
+import openpyxl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
@@ -145,35 +146,33 @@ def delete_item():
 #Send email XML file 
 @app.route("/send-xml", methods=["POST"])
 def send_xml():
-    items = request.get_json()
+    # Fetch all items from DB
+    items = retrieve_records()
 
-    # Create XML structure
-    root = ET.Element("drinks")
+    # Create XLSX workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Drinks"
+    ws.append(["Name", "Type", "Quantity", "ML"])
     for item in items:
-        drink = ET.SubElement(root, "item")
-        ET.SubElement(drink, "name").text = str(item["name"])
-        ET.SubElement(drink, "type").text = str(item["type"])
-        ET.SubElement(drink, "quantity").text = str(item["quantity"])
-        ET.SubElement(drink, "ml").text = str(item["ml"])
+        ws.append([item["name"], item["type"], item["quantity"], item["ml"]])
 
-    xml_data = ET.tostring(root, encoding="utf-8", xml_declaration=True).decode()
-    file_path = "drinks.xml"
+    file_path = "drinks.xlsx"
+    wb.save(file_path)
 
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(xml_data)
-
-    # Send email with attachment
+    # Email credentials
     sender = os.getenv("EMAIL_USER")
     password = os.getenv("EMAIL_PASS")
     receiver = os.getenv("EMAIL_RECEIVER")
     if not all([sender, password, receiver]):
         return "Email credentials not set", 500
 
+    # Create email
     msg = MIMEMultipart()
     msg["From"] = sender
     msg["To"] = receiver
-    msg["Subject"] = "Drinks Inventory XML"
-    msg.attach(MIMEText("Attached is the drinks XML file.", "plain"))
+    msg["Subject"] = "Drinks Inventory XLSX (All Items)"
+    msg.attach(MIMEText("Attached is the drinks XLSX file with all items.", "plain"))
 
     with open(file_path, "rb") as f:
         part = MIMEApplication(f.read(), Name=os.path.basename(file_path))
@@ -181,18 +180,28 @@ def send_xml():
         msg.attach(part)
 
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
+        # Use SSL for Gmail
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.set_debuglevel(1)  # Print SMTP debug info
+            print("Logging in...")
             server.login(sender, password)
+            print("Login successful, sending email...")
             server.send_message(msg)
-        return "XML file sent successfully!"
+            print("Email sent successfully!")
+        return "XLSX file sent successfully!"
+    except smtplib.SMTPAuthenticationError as auth_err:
+        print("SMTP Authentication Error:", auth_err)
+        return f"SMTP Authentication Error: {auth_err}", 500
+    except smtplib.SMTPException as smtp_err:
+        print("SMTP Error:", smtp_err)
+        return f"SMTP Error: {smtp_err}", 500
     except Exception as e:
-        print(e)
-        return "Error sending email", 500
+        print("General Error:", e)
+        return f"Error sending email: {e}", 500
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
-
+            print("Temporary file removed.")
 if __name__ == "__main__":
     create_database()
     app.run(host="0.0.0.0", port=5000, debug=True)
