@@ -13,6 +13,8 @@ from email.mime.application import MIMEApplication
 load_dotenv()
 
 db_url = os.getenv("DATABASE_URL")
+if not db_url:
+    raise RuntimeError("DATABASE_URL environment variable not set")
 
 # Fix Render's postgres:// issue for psycopg
 if db_url.startswith("postgres://"):
@@ -32,6 +34,11 @@ def create_database():
             con.commit()
 
 def insert_record(name, type, quantity, ml):
+    try:
+        quantity = int(quantity)
+        ml = int(ml)
+    except (TypeError, ValueError):
+        raise ValueError("Quantity and ML must be integers")
     with psycopg.connect(db_url) as con:
         with con.cursor() as cur:
             cur.execute('''INSERT INTO items (Name, Type, Quantity, ML)
@@ -90,7 +97,7 @@ def add_item():
     return jsonify({
         'message': 'Item added successfully',
         'item': data
-    }), 201
+    }, 201)
 
 @app.route('/items/quantities', methods=['PATCH'])
 def update_all_quantities():
@@ -159,6 +166,8 @@ def send_xml():
     sender = os.getenv("EMAIL_USER")
     password = os.getenv("EMAIL_PASS")
     receiver = os.getenv("EMAIL_RECEIVER")
+    if not all([sender, password, receiver]):
+        return "Email credentials not set", 500
 
     msg = MIMEMultipart()
     msg["From"] = sender
