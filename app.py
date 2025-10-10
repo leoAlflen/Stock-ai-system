@@ -21,19 +21,6 @@ if not db_url:
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-# ----- Database functions -----
-def create_database():
-    with psycopg.connect(db_url) as con:
-        with con.cursor() as cur:
-            cur.execute('''CREATE TABLE IF NOT EXISTS items(
-                Id SERIAL PRIMARY KEY, 
-                Name TEXT, 
-                Type TEXT, 
-                Quantity INTEGER, 
-                ML INTEGER
-            )''')
-            con.commit()
-
 def insert_record(name, type, quantity, ml):
     try:
         quantity = int(quantity)
@@ -42,34 +29,34 @@ def insert_record(name, type, quantity, ml):
         raise ValueError("Quantity and ML must be integers")
     with psycopg.connect(db_url) as con:
         with con.cursor() as cur:
-            cur.execute('''INSERT INTO items (Name, Type, Quantity, ML)
+            cur.execute('''INSERT INTO Drinks (Name, Type, Quantity, VolumeML)
                            VALUES (%s, %s, %s, %s)''', (name, type, quantity, ml))
             con.commit()
 
 def retrieve_records():
     with psycopg.connect(db_url, row_factory=dict_row) as con:
         with con.cursor() as cur:
-            cur.execute("SELECT * FROM items")
+            cur.execute("SELECT * FROM Drinks")
             records = cur.fetchall()
             return records
 
 def retrieve_by_name(name):
     with psycopg.connect(db_url, row_factory=dict_row) as con:
         with con.cursor() as cur:
-            cur.execute("SELECT * FROM items WHERE Name = %s", (name,))
+            cur.execute("SELECT * FROM Drinks WHERE Name = %s", (name,))
             records = cur.fetchall()
             return records
 
 def delete_records(name):
     with psycopg.connect(db_url) as con:
         with con.cursor() as cur:
-            cur.execute("DELETE FROM items WHERE Name = %s", (name,))
+            cur.execute("DELETE FROM Drinks WHERE Name = %s", (name,))
             con.commit()
 
 def update_quantity(name, new_quantity):
     with psycopg.connect(db_url) as con:
         with con.cursor() as cur:
-            cur.execute("UPDATE items SET Quantity = %s WHERE Name = %s",
+            cur.execute("UPDATE Drinks SET Quantity = %s WHERE Name = %s",
                         (new_quantity, name))
             con.commit()
 
@@ -78,18 +65,18 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "fallbacksecret")
 
-@app.route('/items/get', methods=['GET'])
+@app.route('/drinks', methods=['GET'])
 def retrieve():
     items = retrieve_records()
     return jsonify(items)
 
-@app.route('/items/post', methods=['POST'])
+@app.route('/drinks', methods=['POST'])
 def add_item():
     data = request.get_json()
-    name = data.get('name')
-    type = data.get('type')
-    quantity = data.get('quantity')
-    ml = data.get('ml')
+    name = data.get('Name')
+    type = data.get('Type')
+    quantity = data.get('Quantiy')
+    ml = data.get('VolumeML')
 
     if not all([name, type, quantity, ml]):
         return jsonify({"error": "Missing required field"}), 400
@@ -100,7 +87,7 @@ def add_item():
         'item': data
     }, 201)
 
-@app.route('/items/quantities', methods=['PATCH'])
+@app.route('/drinks', methods=['PATCH'])
 def update_all_quantities():
     data = request.get_json()
 
@@ -128,10 +115,10 @@ def update_all_quantities():
     }), 200
 
 #Delete item
-@app.route('/items/delete', methods=['DELETE'])
+@app.route('/drinks', methods=['DELETE'])
 def delete_item():
     data = request.get_json()
-    name = data.get("name")
+    name = data.get("Name")
 
     if not name:
         return jsonify({"Error": "Item name required"}), 400
@@ -153,9 +140,9 @@ def send_xml():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Drinks"
-    ws.append(["Name", "Type", "Quantity", "ML"])
+    ws.append(["Name", "Type", "Quantity", "VolumeML"])
     for item in items:
-        ws.append([item["name"], item["type"], item["quantity"], item["ml"]])
+        ws.append([item["Name"], item["Type"], item["Quantity"], item["VolumeML"]])
 
     file_path = "drinks.xlsx"
     wb.save(file_path)
@@ -203,5 +190,5 @@ def send_xml():
             os.remove(file_path)
             print("Temporary file removed.")
 if __name__ == "__main__":
-    create_database()
+
     app.run(host="0.0.0.0", port=5000, debug=True)
