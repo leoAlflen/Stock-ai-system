@@ -75,7 +75,7 @@ def add_item():
     data = request.get_json()
     name = data.get('Name')
     type = data.get('Type')
-    quantity = data.get('Quantiy')
+    quantity = data.get('Quantity')
     ml = data.get('VolumeML')
 
     if not all([name, type, quantity, ml]):
