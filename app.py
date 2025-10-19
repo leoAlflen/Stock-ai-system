@@ -238,7 +238,7 @@ def update_drink(drink_id):
     name = data.get('Name')
     drink_type = data.get('Type')
     ml = data.get('VolumeML')
-    print("got the call")
+    print("got the")
     if not all([name, drink_type, ml]):
         return jsonify({"error": "Missing required fields"}), 400
 
@@ -367,5 +367,13 @@ def send_report():
             os.remove(file_path)
             print(f"✓ Temporary file removed: {file_path}")
 
+@app.route("/test-email", methods=["GET"])
+def test_email():
+    import socket
+    try:
+        socket.create_connection(("smtp.gmail.com", 465), timeout=5)
+        return "SMTP connection successful"
+    except Exception as e:
+        return f"SMTP connection failed: {str(e)}"
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
