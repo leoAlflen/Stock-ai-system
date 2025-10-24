@@ -5,15 +5,13 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
 import openpyxl
-import smtplib
-from datetime import datetime
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.application import MIMEApplication
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail, Attachment, FileContent, FileName, FileType, Disposition
+import base64
 
 load_dotenv()
 
-# --- Database Connection Setup (No changes needed) ---
+# --- Database Connection Setup ---
 db_url = os.getenv("DATABASE_URL")
 if not db_url:
     raise RuntimeError("DATABASE_URL environment variable not set")
@@ -27,8 +25,6 @@ def get_stock_data():
     Fetches ALL active drinks and ALL locations, ensuring a result for every
     possible combination, which is essential for the frontend grid.
     """
-    # CORRECTED QUERY: Uses CROSS JOIN and LEFT JOIN to get a full grid.
-    # Also filters for `is_active = true` to support soft deletes.
     query = """
         SELECT 
             d.drinkid, d.name, d.type, d.volumeml,
@@ -45,10 +41,9 @@ def get_stock_data():
             cur.execute(query)
             flat_results = cur.fetchall()
 
-    # This Python logic correctly processes the flat SQL results into the nested JSON structure.
     drinks_dict = {}
     for row in flat_results:
-        drink_id = row['drinkid'] # psycopg with dict_row makes keys lowercase
+        drink_id = row['drinkid']
         if drink_id not in drinks_dict:
             drinks_dict[drink_id] = {
                 "DrinkID": drink_id,
@@ -97,7 +92,6 @@ def get_all_locations():
 def add_drink():
     """
     Adds a new master drink and auto-creates its stock entries at ALL locations.
-    This simplifies the frontend logic significantly.
     """
     data = request.get_json()
     name = data.get('Name')
@@ -136,13 +130,10 @@ def add_drink():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# In app.py
-
 @app.route('/transactions/stocktake', methods=['POST'])
 def create_stocktake_transaction():
     """
-    DEBUG VERSION: This function has extra print statements to show us
-    exactly what data is being received and what actions are being taken.
+    Records stocktake transactions and updates stock quantities.
     """
     print("\n--- Received a request to /transactions/stocktake ---")
     data = request.get_json()
@@ -207,14 +198,12 @@ def create_stocktake_transaction():
         print(f"Error Type: {type(e)}")
         print(f"Error Details: {e}")
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
-        # Also return the error to the frontend
         return jsonify({"error": str(e)}), 500 
     
 @app.route('/drinks/<int:drink_id>', methods=['DELETE'])
 def deactivate_drink(drink_id):
     """
-    BEST PRACTICE: Soft-deletes a drink by marking it as inactive.
-    This preserves all historical transaction data.
+    Soft-deletes a drink by marking it as inactive.
     """
     try:
         with psycopg.connect(db_url) as con:
@@ -224,21 +213,20 @@ def deactivate_drink(drink_id):
                     (drink_id,)
                 )
                 con.commit()
-                # Check if any row was actually updated
                 if cur.rowcount == 0:
                     return jsonify({"Error": "Item not found"}), 404
         return jsonify({"message": "Item deactivated successfully"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-##Edit existing item
 @app.route('/edit/<int:drink_id>', methods=['PUT'])
 def update_drink(drink_id):
+    """Updates an existing drink's details."""
     data = request.get_json()
     name = data.get('Name')
     drink_type = data.get('Type')
     ml = data.get('VolumeML')
-    print("got the")
+    
     if not all([name, drink_type, ml]):
         return jsonify({"error": "Missing required fields"}), 400
 
@@ -254,11 +242,14 @@ def update_drink(drink_id):
         return jsonify({"message": "Drink updated successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 @app.route("/send-report", methods=["POST"])
 def send_report():
+    """Sends stock inventory report via SendGrid email."""
     data = request.get_json()
     custom_receiver = data.get('recipient')
     file_path = None
+    
     try:
         # 1. Get stock data and create Excel file
         items_data = get_stock_data()
@@ -268,11 +259,8 @@ def send_report():
         ws.title = "Current Stock Report"
         ws.append(["Drink Name", "Type", "Volume (ML)", "Total Quantity"])
         
-        # Aggregate quantities across all locations for each drink
         for item in items_data:
-            # Sum up quantities from all locations
             total_quantity = sum(stock_info["Quantity"] for stock_info in item['stock'])
-            
             ws.append([
                 item["Name"], 
                 item["Type"], 
@@ -284,81 +272,65 @@ def send_report():
         wb.save(file_path)
         print(f"✓ Excel file created: {file_path}")
 
-        # 2. Get email credentials
-        sender = os.getenv("EMAIL_USER")
-        password = os.getenv("EMAIL_PASS")
-        receiver = custom_receiver
+        # 2. Read and encode the file
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+        encoded_file = base64.b64encode(file_data).decode()
+
+        # 3. Get email configuration
+        sender_email = os.getenv("EMAIL_USER")
+        sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
         
-        # Validate credentials exist
-        if not all([sender, password, receiver]):
+        if not all([sender_email, sendgrid_api_key, custom_receiver]):
             missing = []
-            if not sender: missing.append("EMAIL_USER")
-            if not password: missing.append("EMAIL_PASS")
-            if not receiver: missing.append("EMAIL_RECEIVER")
-            return jsonify({"error": f"Missing environment variables: {', '.join(missing)}"}), 500
+            if not sender_email: missing.append("EMAIL_USER")
+            if not sendgrid_api_key: missing.append("SENDGRID_API_KEY")
+            if not custom_receiver: missing.append("recipient")
+            return jsonify({"error": f"Missing configuration: {', '.join(missing)}"}), 500
 
-        print(f"✓ Credentials loaded - Sender: {sender}, Receiver: {receiver}")
+        print(f"✓ Configuration loaded - Sender: {sender_email}, Receiver: {custom_receiver}")
 
-        # 3. Create email message
-        msg = MIMEMultipart()
-        msg["From"] = sender
-        msg["To"] = receiver
-        msg["Subject"] = "Stock Inventory Report"
-        
-        body = f"""
-        Hello,
-        
-        Please find attached the current stock inventory report.
-        
-        Total items in report: {len(items_data)}
-        
-        Best regards,
-        Stock Management System
-        """
-        msg.attach(MIMEText(body, "plain"))
+        # 4. Create email message with SendGrid
+        message = Mail(
+            from_email=sender_email,
+            to_emails=custom_receiver,
+            subject='Stock Inventory Report',
+            html_content=f'''
+                <html>
+                <body>
+                    <p>Hello,</p>
+                    <p>Please find attached the current stock inventory report.</p>
+                    <p><strong>Total items in report:</strong> {len(items_data)}</p>
+                    <p>Best regards,<br>Stock Management System</p>
+                </body>
+                </html>
+            '''
+        )
 
-        # 4. Attach the Excel file
-        with open(file_path, "rb") as f:
-            part = MIMEApplication(f.read(), Name=os.path.basename(file_path))
-            part["Content-Disposition"] = f'attachment; filename="{os.path.basename(file_path)}"'
-            msg.attach(part)
-        
+        # 5. Attach the Excel file
+        attached_file = Attachment(
+            FileContent(encoded_file),
+            FileName('stock_report.xlsx'),
+            FileType('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+            Disposition('attachment')
+        )
+        message.attachment = attached_file
+
         print("✓ Email message created with attachment")
 
-        # 5. Send email via Gmail SMTP
-        print("Connecting to Gmail SMTP server...")
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.set_debuglevel(1)  # Print detailed SMTP logs
-            print("Attempting login...")
-            server.login(sender, password)
-            print("✓ Login successful!")
-            
-            print("Sending email...")
-            server.send_message(msg)
-            print("✓ Email sent successfully!")
-
+        # 6. Send email via SendGrid
+        print("Sending email via SendGrid...")
+        sg = SendGridAPIClient(sendgrid_api_key)
+        response = sg.send(message)
+        
+        print(f"✓ Email sent successfully! Status code: {response.status_code}")
         return jsonify({"message": "Report sent successfully!"}), 200
 
-    except smtplib.SMTPAuthenticationError as auth_err:
-        error_msg = f"Gmail authentication failed. You need to use an App Password, not your regular Gmail password. Error: {auth_err}"
-        print(f"❌ {error_msg}")
-        return jsonify({"error": error_msg}), 500
-        
-    except smtplib.SMTPException as smtp_err:
-        error_msg = f"SMTP error occurred: {smtp_err}"
-        print(f"❌ {error_msg}")
-        return jsonify({"error": error_msg}), 500
-        
-    except FileNotFoundError as file_err:
-        error_msg = f"Could not create or find the Excel file: {file_err}"
-        print(f"❌ {error_msg}")
-        return jsonify({"error": error_msg}), 500
-        
     except Exception as e:
-        error_msg = f"Unexpected error: {str(e)}"
+        error_msg = f"Error sending email: {str(e)}"
         print(f"❌ {error_msg}")
         import traceback
-        traceback.print_exc()  # Print full stack trace for debugging
+        traceback.print_exc()
         return jsonify({"error": error_msg}), 500
         
     finally:
@@ -369,11 +341,33 @@ def send_report():
 
 @app.route("/test-email", methods=["GET"])
 def test_email():
-    import socket
+    """Test endpoint to verify SendGrid configuration."""
     try:
-        socket.create_connection(("smtp.gmail.com", 465), timeout=5)
-        return "SMTP connection successful"
+        sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
+        sender_email = os.getenv("EMAIL_USER")
+        
+        if not sendgrid_api_key:
+            return jsonify({"error": "SENDGRID_API_KEY not configured"}), 500
+        if not sender_email:
+            return jsonify({"error": "EMAIL_USER not configured"}), 500
+            
+        message = Mail(
+            from_email=sender_email,
+            to_emails=sender_email,  # Send to self for testing
+            subject='SendGrid Test Email',
+            html_content='<p>This is a test email from your Stock Management System. SendGrid is working!</p>'
+        )
+        
+        sg = SendGridAPIClient(sendgrid_api_key)
+        response = sg.send(message)
+        
+        return jsonify({
+            "message": "Test email sent successfully!",
+            "status_code": response.status_code
+        }), 200
+        
     except Exception as e:
-        return f"SMTP connection failed: {str(e)}"
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
