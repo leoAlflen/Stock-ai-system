@@ -339,35 +339,104 @@ def send_report():
             os.remove(file_path)
             print(f"✓ Temporary file removed: {file_path}")
 
-@app.route("/test-email", methods=["GET"])
-def test_email():
-    """Test endpoint to verify SendGrid configuration."""
+#Add new users
+@app.route("/users", methods=["POST"])
+def add_user():
+    """Endpoint to add a new user."""
+    data = request.get_json()
+    fullname = data.get("name")
+    email = data.get("email")
+    role = data.get("role")
+
+    if not all([fullname, email, role]):
+        return jsonify({"error": "Missing required fields"}), 400
+
     try:
-        sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
-        sender_email = os.getenv("EMAIL_USER")
-        
-        if not sendgrid_api_key:
-            return jsonify({"error": "SENDGRID_API_KEY not configured"}), 500
-        if not sender_email:
-            return jsonify({"error": "EMAIL_USER not configured"}), 500
-            
-        message = Mail(
-            from_email=sender_email,
-            to_emails=sender_email,  # Send to self for testing
-            subject='SendGrid Test Email',
-            html_content='<p>This is a test email from your Stock Management System. SendGrid is working!</p>'
-        )
-        
-        sg = SendGridAPIClient(sendgrid_api_key)
-        response = sg.send(message)
-        
-        return jsonify({
-            "message": "Test email sent successfully!",
-            "status_code": response.status_code
-        }), 200
-        
+        with psycopg.connect(db_url) as con:
+            with con.cursor(row_factory=psycopg.rows.dict_row) as cur:
+                # Check if user exists
+                cur.execute('SELECT * FROM "users" WHERE email = %s', (email,))
+                existing_user = cur.fetchone()
+
+                if existing_user:
+                    if not existing_user["is_active"]:
+                        # Reactivate soft-deleted user
+                        cur.execute(
+                            'UPDATE "users" SET is_active = true WHERE email = %s RETURNING userid, name, email, role',
+                            (email,)
+                        )
+                        reactivated_user = cur.fetchone()
+                        con.commit()
+                        return jsonify(reactivated_user), 200
+                    else:
+                        return jsonify({"error": "User already exists"}), 400
+
+                # Insert new user
+                cur.execute(
+                    'INSERT INTO "users" (name, email, role) VALUES (%s, %s, %s) RETURNING userid, name, email, role',
+                    (fullname, email, role)
+                )
+                new_user = cur.fetchone()
+                con.commit()
+                return jsonify(new_user), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+#Get all users
+@app.route("/users", methods=["GET"])
+def get_users():
+    """Endpoint to get all users."""
+    try:
+        with psycopg.connect(db_url, row_factory=dict_row) as con:
+            with con.cursor() as cur:
+                cur.execute('SELECT * FROM "users";')
+                users = cur.fetchall()
+        return jsonify(users), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+#soft delete user
+@app.route("/user/<int:user_id>", methods=["DELETE"])
+def deactivate_user(user_id):
+    """Soft-deletes a user by marking them as inactive."""
+    try:
+        with psycopg.connect(db_url) as con:
+            with con.cursor() as cur:
+                cur.execute(
+                    'UPDATE "users" SET is_active = false WHERE "userid" = %s',
+                    (user_id,)
+                )
+                con.commit()
+                if cur.rowcount == 0:
+                    return jsonify({"Error": "User not found"}), 404
+        return jsonify({"message": "User deactivated successfully"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+ #Edit Users 
+@app.route("/user/<int:user_id>", methods=["PUT"])
+def update_user(user_id):
+    """Updates an existing user's details."""
+    data = request.get_json()
+    fullname = data.get('fullname')
+    email = data.get('email')
+    role = data.get('role')
+
+    if not all([fullname, email, role]):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    try:
+        with psycopg.connect(db_url) as con:
+            with con.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET fullname = %s, email = %s, role = %s WHERE userid = %s",
+                    (fullname, email, role, user_id)
+                )
+                con.commit()
+
+        return jsonify({"message": "User updated successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
