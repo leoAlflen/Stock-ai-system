@@ -22,17 +22,16 @@ if db_url.startswith("postgres://"):
 
 def get_stock_data():
     """
-    Fetches ALL active drinks and ALL locations, ensuring a result for every
-    possible combination, which is essential for the frontend grid.
+    Fetches ALL active drinks and ONLY locations where stock entries exist.
     """
     query = """
         SELECT 
             d.drinkid, d.name, d.type, d.volumeml,
             l.locationid, l.locationname,
-            COALESCE(s.Quantity, 0) AS Quantity
+            s.quantity
         FROM "drinks" d
-        CROSS JOIN "locations" l
-        LEFT JOIN "stock" s ON d.drinkid = s.drinkid AND l.locationid = s.locationid
+        INNER JOIN "stock" s ON d.drinkid = s.drinkid
+        INNER JOIN "locations" l ON s.locationid = l.locationid
         WHERE d.is_active = true
         ORDER BY d.name, l.locationname;
     """
@@ -60,7 +59,6 @@ def get_stock_data():
         })
     
     return list(drinks_dict.values())
-
 def get_locations_data():
     """Fetches all location records."""
     with psycopg.connect(db_url, row_factory=dict_row) as con:
@@ -91,12 +89,21 @@ def get_all_locations():
 @app.route('/drinks', methods=['POST'])
 def add_drink():
     """
-    Adds a new master drink and auto-creates its stock entries at ALL locations.
+    Adds a new master drink and creates stock entries at selected locations.
     """
     data = request.get_json()
+    print(f"\n=== RECEIVED DATA ===")
+    print(f"Full data: {data}")
+    
     name = data.get('Name')
     drink_type = data.get('Type')
     ml = data.get('VolumeML')
+    selected_locations = data.get('LocationName', [])
+    
+    print(f"Selected locations: {selected_locations}")
+    print(f"Type: {type(selected_locations)}")
+    print(f"Length: {len(selected_locations)}")
+    print(f"===================\n")
 
     if not all([name, drink_type, ml]):
         return jsonify({"error": "Missing required field (Name, Type, VolumeML)"}), 400
@@ -104,30 +111,50 @@ def add_drink():
     try:
         with psycopg.connect(db_url) as con:
             with con.cursor() as cur:
+                # Check if drink already exists
                 cur.execute('SELECT "drinkid" FROM "drinks" WHERE "name" = %s', (name,))
                 if cur.fetchone():
-                    cur.execute('UPDATE "drinks" SET is_active = true WHERE "name" = %s',(name,))
-                    return jsonify("Item Added Again"), 409
+                    cur.execute('UPDATE "drinks" SET is_active = true WHERE "name" = %s', (name,))
+                    con.commit()
+                    return jsonify({"message": "Item reactivated"}), 200
 
+                # Insert new drink
                 cur.execute(
                     'INSERT INTO "drinks" ("name", "type", "volumeml") VALUES (%s, %s, %s) RETURNING "drinkid"',
                     (name, drink_type, ml)
                 )
                 new_drink_id = cur.fetchone()[0]
                
-                cur.execute('SELECT "locationid" FROM "locations"')
-                locations = cur.fetchall()
+                # Get all locations from database
+                cur.execute('SELECT "locationid", "locationname" FROM "locations"')
+                all_locations = cur.fetchall()
+                
+                print(f"All locations from DB: {all_locations}")
 
-                for loc in locations:
-                    location_id = loc[0]
-                    cur.execute(
-                        'INSERT INTO "stock" ("drinkid", "locationid", "quantity") VALUES (%s, %s, %s)',
-                        (new_drink_id, location_id, 0)
-                    )
+                # Only create stock entries for selected locations
+                if len(selected_locations) > 0:
+                    for location in all_locations:
+                        location_id = location[0]
+                        location_name = location[1]
+                        
+                        print(f"Checking: {location_name} in {selected_locations}? {location_name in selected_locations}")
+                        
+                        # Check if this location was selected
+                        if location_name in selected_locations:
+                            print(f"  -> CREATING stock entry for {location_name}")
+                            cur.execute(
+                                'INSERT INTO "stock" ("drinkid", "locationid", "quantity") VALUES (%s, %s, %s)',
+                                (new_drink_id, location_id, 0)
+                            )
+                        else:
+                            print(f"  -> SKIPPING {location_name}")
+                else:
+                    print("WARNING: No locations selected, not creating any stock entries")
                 
                 con.commit()
         return jsonify({"message": f"Drink '{name}' added successfully"}), 201
     except Exception as e:
+        print(f"Error in add_drink: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/transactions/stocktake', methods=['POST'])
